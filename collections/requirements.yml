@@ -1,0 +1,7 @@
+---
+collections:
+- community.general
+- hpe.ilo
+- name: https://github.com/HewlettPackard/ilo-ansible-collection.git
+  type: git
+  version: main

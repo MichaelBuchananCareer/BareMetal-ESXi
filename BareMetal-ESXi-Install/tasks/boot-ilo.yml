@@ -1,0 +1,19 @@
+---
+- name: Install Hhp-ilo python package
+  ansible.builtin.pip:
+    name: python-hpilo
+
+- name: Booting once using the custom built iso . . .
+  hpilo_boot:
+    host: "{{ ilo_ip }}"
+    login: administrator
+    password: "{{ ilo_password }}"
+    media: cdrom
+    image: http://192.168.2.169/isos/{{ esxi_hostname }}.iso # <- Your webserver url should go here.
+
+- name: Waiting for custom installation to complete . . .
+  wait_for: 
+    delay: 120
+    sleep: 3
+    host: "{{ host_management_ip }}"
+    timeout: 840

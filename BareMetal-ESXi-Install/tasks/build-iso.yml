@@ -1,0 +1,90 @@
+---
+- name: Install Packages Needed to fully automate
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+  become: true
+  loop:
+    - apache2
+    - mkisofs
+    - python3-pip
+
+
+- name: Start nginx
+  ansible.builtin.service:
+    name: apache2
+    state: started
+
+- name: Create the structure copy, modify, build, and create the iso
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /tmp/iso_output/
+    - /tmp/iso_temp/efi/boot/
+  become: true
+
+- name: Mount ESXi iso as read-onlyd
+  mount:
+    path: /mnt/{{ esxi_hostname }}
+    src: "{{ src_iso_file }}"
+    fstype: iso9660
+    opts: ro,noauto
+    state: mounted
+  become: true
+
+- name: Copy files
+  ansible.builtin.copy:
+    src: /mnt/{{ esxi_hostname }}/
+    dest: /tmp/iso_temp/
+    remote_src: true 
+
+- name: Unmount the iso
+  ansible.posix.mount:
+    path: /mnt/{{ esxi_hostname }}
+    state: unmounted
+  become: true
+
+- name: Ensure SELinux is set to enforcing mode
+  ansible.builtin.lineinfile:
+    path: "{{ item }}"
+    regexp: '^kernelopt='
+    line: kernelopt=ks=file://CUSTOM-ESXI.CFG
+  become: true
+  loop:
+    - /tmp/iso_temp/boot.cfg
+    - /tmp/iso_temp/efi/boot/boot.cfg
+
+- name: Create the custom config
+  copy:
+    dest: /tmp/iso_temp/CUSTOM-ESXI.CFG
+    content: |
+      vmaccepteula
+      clearpart --firstdisk=local --overwritevmfs
+      install --firstdisk=local --overwritevmfs
+      rootpw --iscrypted "$6$yBS3mK0SgpQkruBA$mSDxIpH6ybjup.A4jCBWrStGDxHAReTAUBlstJPwiwFCs6ZoiHXOjOKkGtqQW3KOeFpzqQ8yDvwNneMHOjgaS/"
+      network --bootproto=static --addvmportgroup=1 --vlanid=0 --ip=192.168.86.50 --netmask=255.255.255.0 --gateway=192.168.86.1 --nameserver=192.168.86.1 --hostname=BCL-ESXI1
+      reboot
+
+- name: Creating bootable iso from all files . . .
+  shell: >
+    mkisofs
+    -relaxed-filenames
+    -J
+    -R
+    -b isolinux.bin
+    -c boot.cat
+    -no-emul-boot
+    -boot-load-size 4
+    -boot-info-table
+    -eltorito-alt-boot
+    -e efiboot.img
+    -boot-load-size 1
+    -no-emul-boot
+    -o /tmp/iso_output/{{ esxi_hostname }}.iso
+    /tmp/iso_temp/
+
+- name: Moving created iso to webserver . . .
+  shell: |
+    mv /tmp/iso_output/{{ esxi_hostname }}.iso /var/www/html/isos/
